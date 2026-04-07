@@ -134,7 +134,12 @@ class MDATabs(CheckableTabWidget):
     def value(self) -> useq.MDASequence:
         """Return the current sequence as a [`useq.MDASequence`][]."""
         grid_plan = self.grid_plan.value() if self.isAxisUsed("g") else None
+        z_plan = self.z_plan.value() if self.isAxisUsed("z") else None
         positions = self.stage_positions.value() if self.isAxisUsed("p") else ()
+        channels = self.channels.value() if self.isAxisUsed("c") else ()
+        positions = _inherit_subsequence_channel_stack_settings(
+            positions, channels, z_plan
+        )
 
         # If a global absolute grid plan is used, x/y on positions are
         # meaningless (the grid defines them). Clear them to avoid useq
@@ -148,10 +153,10 @@ class MDATabs(CheckableTabWidget):
             )
 
         return useq.MDASequence(
-            z_plan=self.z_plan.value() if self.isAxisUsed("z") else None,
+            z_plan=z_plan,
             time_plan=self.time_plan.value() if self.isAxisUsed("t") else None,
             stage_positions=positions,
-            channels=self.channels.value() if self.isAxisUsed("c") else (),
+            channels=channels,
             grid_plan=grid_plan,
             metadata={PYMMCW_METADATA_KEY: {"version": pymmcore_widgets.__version__}},
         )
@@ -674,3 +679,61 @@ class MDASequenceWidget(QWidget):
             new_pos.append(pos)
 
         return tuple(new_pos)
+
+
+def _channel_key(channel: useq.Channel) -> tuple[str | None, str | None]:
+    return (channel.group, channel.config)
+
+
+def _inherit_subsequence_channel_stack_settings(
+    positions: Sequence[useq.Position],
+    channels: Sequence[useq.Channel],
+    z_plan: useq.AnyZPlan | None,
+) -> Sequence[useq.Position]:
+    """Copy global channel stack settings into position sub-sequences.
+
+    The channel table hides the do_stack column in sub-sequences unless their
+    local Z tab is enabled.  In that case, useq would otherwise treat the local
+    channel as stack-enabled and inherit the global z_plan.
+    """
+    global_channels = {_channel_key(channel): channel for channel in channels}
+    new_positions: list[useq.Position] = []
+    for pos in positions:
+        seq = pos.sequence
+        if not seq or not seq.channels:
+            new_positions.append(pos)
+            continue
+
+        changed = False
+        new_channels = []
+        for channel in seq.channels:
+            fields_set = getattr(channel, "model_fields_set", set())
+            global_channel = global_channels.get(_channel_key(channel))
+            if "do_stack" not in fields_set:
+                if global_channel is not None and global_channel.do_stack is not None:
+                    channel = channel.replace(do_stack=global_channel.do_stack)
+                    changed = True
+                elif global_channel is None and seq.z_plan is None and z_plan is not None:
+                    channel = channel.replace(do_stack=False)
+                    changed = True
+            new_channels.append(channel)
+
+        if (
+            z_plan is not None
+            and seq.z_plan is None
+            and new_channels
+            and all(channel.do_stack is False for channel in new_channels)
+        ):
+            seq = seq.replace(
+                z_plan=useq.ZRangeAround(
+                    range=0,
+                    step=getattr(z_plan, "step", None) or 1,
+                )
+            )
+            changed = True
+
+        if changed:
+            pos = pos.replace(sequence=seq.replace(channels=tuple(new_channels)))
+        new_positions.append(pos)
+
+    return tuple(new_positions)
