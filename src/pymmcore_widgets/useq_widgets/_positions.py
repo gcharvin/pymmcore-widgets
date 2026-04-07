@@ -130,11 +130,12 @@ class MDAButton(QWidget):
             value = useq.MDASequence(**value)
         elif value and not isinstance(value, useq.MDASequence):  # pragma: no cover
             raise TypeError(f"Expected useq.MDASequence, got {type(value)}")
+        value = _normalize_sub_sequence(value)
         old_val, self._value = getattr(self, "_value", None), value
         if old_val != value:
             # if sub-sequence is equal to the null sequence (useq.MDASequence())
             # treat it as None
-            if value and value != NULL_SEQUENCE:
+            if value:
                 self.seq_btn.setIcon(QIconifyIcon("mdi:axis-arrow", color="green"))
                 self.clear_btn.show()
             else:
@@ -258,6 +259,12 @@ class PositionTable(DataTableWidget):
             # position are meaningless (the grid defines them). Clear them
             # to avoid useq validation warnings.
             sub = r.get("sequence")
+            if isinstance(sub, useq.MDASequence):
+                sub = _normalize_sub_sequence(sub)
+                if sub is None:
+                    r.pop("sequence", None)
+                else:
+                    r["sequence"] = sub
             if isinstance(sub, useq.MDASequence) and sub.grid_plan is not None:
                 if not sub.grid_plan.is_relative:
                     r.pop("x", None)
@@ -295,8 +302,7 @@ class PositionTable(DataTableWidget):
                 sub_seq: useq.MDASequence | None = useq.MDASequence(
                     **v.sequence.model_dump(exclude={"autofocus_plan"})
                 )
-                if sub_seq == NULL_SEQUENCE:
-                    sub_seq = None
+                sub_seq = _normalize_sub_sequence(sub_seq)
 
                 # get autofocus plan device name and offset
                 _af_offset = v.sequence.autofocus_plan.autofocus_motor_offset
@@ -429,3 +435,13 @@ class PositionTable(DataTableWidget):
 def _seq_has_absolute_grid(seq: useq.MDASequence | None) -> bool:
     """Return True if the sequence has an absolute grid plan."""
     return bool(seq and seq.grid_plan and not seq.grid_plan.is_relative)
+
+
+def _normalize_sub_sequence(
+    seq: useq.MDASequence | None,
+) -> useq.MDASequence | None:
+    """Treat metadata-only sub-sequences as no override."""
+    if seq is None:
+        return None
+    without_metadata = useq.MDASequence(**seq.model_dump(exclude={"metadata"}))
+    return None if without_metadata == NULL_SEQUENCE else seq

@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from pymmcore_plus._logger import logger
+from pymmcore_plus.core._sequencing import SequencedEvent
 from pymmcore_plus.mda import MDAEngine
+from pymmcore_plus.mda._runner import SkipEvent
 from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
@@ -21,7 +23,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from useq import HardwareAutofocus, MDAEvent, MDASequence
+from useq import AcquireImage, HardwareAutofocus, MDAEvent, MDASequence
 
 from pymmcore_widgets.useq_widgets._autofocus import (
     PYMMCW_AUTOFOCUS_KEY,
@@ -430,6 +432,8 @@ class SoftwareAutofocusMDAEngine(MDAEngine):
         super().__init__(mmc)
         self._af_mode = AutofocusMode.NONE
         self._software_af_settings = normalize_software_af_settings(None)
+        self._skipped_position_keys: set[tuple[tuple[str, int], ...]] = set()
+        self._skip_reasons: dict[tuple[tuple[str, int], ...], str] = {}
 
     def setup_sequence(self, sequence: MDASequence) -> dict | None:
         af_meta = sequence.metadata.get(PYMMCW_METADATA_KEY, {}).get(
@@ -441,10 +445,69 @@ class SoftwareAutofocusMDAEngine(MDAEngine):
         self._software_af_settings = normalize_software_af_settings(
             af_meta.get(PYMMCW_SOFTWARE_AUTOFOCUS_KEY)
         )
+        self._skipped_position_keys.clear()
+        self._skip_reasons.clear()
         meta = super().setup_sequence(sequence)
         if self._af_mode is AutofocusMode.SOFTWARE:
             self._af_was_engaged = False
         return meta
+
+    def _position_key(self, event: MDAEvent) -> tuple[tuple[str, int], ...]:
+        return tuple(
+            (str(axis), int(value))
+            for axis, value in event.index.items()
+            if str(axis) not in {"c", "z"}
+        )
+
+    def _skip_frames_for_event(self, event: MDAEvent) -> int:
+        if isinstance(event, SequencedEvent):
+            return len(event.events)
+        action = getattr(event, "action", None)
+        return 1 if action is None or isinstance(action, AcquireImage) else 0
+
+    def _position_label(self, event: MDAEvent) -> str:
+        pos_name = getattr(event, "pos_name", None)
+        if pos_name:
+            return str(pos_name)
+        p_idx = event.index.get("p", None)
+        if p_idx is not None:
+            return f"position {int(p_idx) + 1}"
+        return "current position"
+
+    def setup_event(self, event: MDAEvent) -> None:
+        pos_key = self._position_key(event)
+        if pos_key in self._skipped_position_keys:
+            raise SkipEvent(
+                num_frames=self._skip_frames_for_event(event),
+                reason=self._skip_reasons[pos_key],
+            )
+
+        try:
+            super().setup_event(event)
+        except RuntimeError as e:
+            msg = str(e)
+            timed_out_device = _wait_timeout_device(msg)
+            if timed_out_device not in {"TIZDrive", "TIXYDrive"}:
+                raise
+
+            pos_label = self._position_label(event)
+            reason = (
+                f"Skipping {pos_label} after {timed_out_device} timeout "
+                "(position data will be missing for this timepoint)"
+            )
+            self._skipped_position_keys.add(pos_key)
+            self._skip_reasons[pos_key] = reason
+            logger.warning(
+                "%s timeout while preparing %s. %s",
+                timed_out_device,
+                pos_label,
+                msg,
+            )
+            logger.warning("%s", reason)
+            raise SkipEvent(
+                num_frames=self._skip_frames_for_event(event),
+                reason=reason,
+            ) from e
 
     def exec_event(self, event: MDAEvent) -> Iterable[PImagePayload | None]:
         action = getattr(event, "action", None)
@@ -477,3 +540,11 @@ class SoftwareAutofocusMDAEngine(MDAEngine):
             return ()
 
         return super().exec_event(event)
+
+
+def _wait_timeout_device(message: str) -> str | None:
+    prefix = 'Wait for device "'
+    suffix = '" timed out'
+    if prefix not in message or suffix not in message:
+        return None
+    return message.split(prefix, 1)[1].split('"', 1)[0]
