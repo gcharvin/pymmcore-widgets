@@ -62,6 +62,7 @@ AF_AXIS_TOOLTIP = "Use autofocus on the selected axes."
 AF_DISABLED_TOOLTIP = (
     "Autofocus cannot be used with absolute Z positions (TOP_BOTTOM mode)."
 )
+AutofocusAxis = AutofocusControls
 
 
 class MDATabs(CheckableTabWidget):
@@ -392,11 +393,19 @@ class MDASequenceWidget(QWidget):
             val = val.replace(**replace)
 
         meta = val.metadata.setdefault(PYMMCW_METADATA_KEY, {})
-        meta[PYMMCW_AUTOFOCUS_KEY] = {
-            "mode": af_mode.value,
-            "axes": af_axes,
-            PYMMCW_SOFTWARE_AUTOFOCUS_KEY: self.softwareAutofocusSettings(),
-        }
+        software_settings = self.softwareAutofocusSettings()
+        if (
+            af_mode is not AutofocusMode.NONE
+            or af_axes
+            or software_settings != default_software_af_settings()
+        ):
+            meta[PYMMCW_AUTOFOCUS_KEY] = {
+                "mode": af_mode.value,
+                "axes": list(af_axes),
+                PYMMCW_SOFTWARE_AUTOFOCUS_KEY: software_settings,
+            }
+        else:
+            meta.pop(PYMMCW_AUTOFOCUS_KEY, None)
 
         return val
 
@@ -715,7 +724,11 @@ def _inherit_subsequence_channel_stack_settings(
                 if global_channel is not None and global_channel.do_stack is not None:
                     channel = channel.replace(do_stack=global_channel.do_stack)
                     changed = True
-                elif global_channel is None and seq.z_plan is None and z_plan is not None:
+                elif (
+                    global_channel is None
+                    and seq.z_plan is None
+                    and z_plan is not None
+                ):
                     channel = channel.replace(do_stack=False)
                     changed = True
             new_channels.append(channel)

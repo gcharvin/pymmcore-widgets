@@ -155,19 +155,37 @@ class AutofocusControls(QWidget):
         self.use_af_t.setChecked("t" in value)
         self.use_af_g.setChecked("g" in value)
 
-    def value(self) -> dict[str, Any]:
-        return {"mode": self.mode().value, "axes": self.axes()}
+    def value(self) -> tuple[str, ...]:
+        return self.axes()
 
-    def setValue(self, value: dict[str, Any]) -> None:
+    def setValue(self, value: dict[str, Any] | tuple[str, ...]) -> None:
+        if not isinstance(value, dict):
+            mode = AutofocusMode.HARDWARE if value else AutofocusMode.NONE
+            with (
+                signals_blocked(self._mode),
+                signals_blocked(self.use_af_p),
+                signals_blocked(self.use_af_t),
+                signals_blocked(self.use_af_g),
+            ):
+                self.setMode(mode)
+                self.setAxes(tuple(value))
+            self._on_mode_changed()
+            return
+
         if not value:
             self.setMode(AutofocusMode.NONE)
             self.setAxes(())
             return
         mode = value.get("mode", AutofocusMode.NONE.value)
         axes = tuple(value.get("axes", ()))
-        with signals_blocked(self._mode):
+        with (
+            signals_blocked(self._mode),
+            signals_blocked(self.use_af_p),
+            signals_blocked(self.use_af_t),
+            signals_blocked(self.use_af_g),
+        ):
             self.setMode(mode)
-        self.setAxes(axes)
+            self.setAxes(axes)
         self._on_mode_changed()
 
     def setAxesAllowed(self, allowed: bool, tooltip: str = "") -> None:
