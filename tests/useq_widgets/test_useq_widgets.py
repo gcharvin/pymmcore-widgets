@@ -247,7 +247,6 @@ def test_subsequence_channel_do_stack_inherits_by_global_channel() -> None:
                         exposure=30.0,
                     ),
                 ),
-                z_plan=z_plan,
             ),
         ),
         useq.Position(
@@ -261,7 +260,6 @@ def test_subsequence_channel_do_stack_inherits_by_global_channel() -> None:
                         exposure=30.0,
                     ),
                 ),
-                z_plan=z_plan,
             ),
         ),
         useq.Position(
@@ -276,7 +274,6 @@ def test_subsequence_channel_do_stack_inherits_by_global_channel() -> None:
                         do_stack=True,
                     ),
                 ),
-                z_plan=z_plan,
             ),
         ),
     )
@@ -286,8 +283,38 @@ def test_subsequence_channel_do_stack_inherits_by_global_channel() -> None:
     )
 
     assert inherited[0].sequence.channels[1].do_stack is False
+    assert inherited[0].sequence.z_plan == z_plan
     assert inherited[1].sequence.channels[1].do_stack is False
+    assert inherited[1].sequence.z_plan == z_plan
     assert inherited[2].sequence.channels[1].do_stack is True
+    assert inherited[2].sequence.z_plan is None
+
+    sequence = useq.MDASequence(
+        stage_positions=inherited,
+        channels=global_channels,
+        z_plan=z_plan,
+        axis_order=("p", "z", "c"),
+    )
+    events = [
+        (event.index.get("p"), event.index.get("c"), event.index.get("z"))
+        for event in sequence
+    ]
+    assert events == [
+        (0, 0, 0),
+        (0, 0, 1),
+        (0, 0, 2),
+        (0, 1, 1),
+        (1, 0, 0),
+        (1, 0, 1),
+        (1, 0, 2),
+        (1, 1, 1),
+        (2, 0, 0),
+        (2, 1, 0),
+        (2, 0, 1),
+        (2, 1, 1),
+        (2, 0, 2),
+        (2, 1, 2),
+    ]
 
 
 def test_qquant_line_edit(qtbot: QtBot) -> None:

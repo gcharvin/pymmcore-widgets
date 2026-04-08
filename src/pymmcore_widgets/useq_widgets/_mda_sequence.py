@@ -742,6 +742,13 @@ def _inherit_subsequence_channel_stack_settings(
                 )
             )
             changed = True
+        elif (
+            z_plan is not None
+            and seq.z_plan is None
+            and any(channel.do_stack is False for channel in new_channels)
+        ):
+            seq = seq.replace(z_plan=z_plan)
+            changed = True
 
         if changed:
             pos = pos.replace(sequence=seq.replace(channels=tuple(new_channels)))
