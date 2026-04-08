@@ -220,6 +220,61 @@ def test_mda_wdg_set_value_ignore_z(qtbot: QtBot) -> None:
     assert wdg.stage_positions.include_z.isChecked()
 
 
+def test_subsequence_channel_do_stack_inherits_by_row() -> None:
+    from pymmcore_widgets.useq_widgets._mda_sequence import (
+        _inherit_subsequence_channel_stack_settings,
+    )
+
+    global_channels = (
+        useq.Channel(config="0 TL ", group="z_Channels SD", exposure=10.0),
+        useq.Channel(
+            config="2 SB GFP",
+            group="z_Channels SD",
+            exposure=50.0,
+            do_stack=False,
+        ),
+    )
+    z_plan = useq.ZRangeAround(range=2, step=1)
+    positions = (
+        useq.Position(
+            name="different local fluo preset",
+            sequence=useq.MDASequence(
+                channels=(
+                    useq.Channel(config="0 TL ", group="z_Channels SD"),
+                    useq.Channel(
+                        config="3 SB Red",
+                        group="z_Channels SD",
+                        exposure=30.0,
+                    ),
+                ),
+                z_plan=z_plan,
+            ),
+        ),
+        useq.Position(
+            name="explicit local stack",
+            sequence=useq.MDASequence(
+                channels=(
+                    useq.Channel(config="0 TL ", group="z_Channels SD"),
+                    useq.Channel(
+                        config="3 SB Red",
+                        group="z_Channels SD",
+                        exposure=30.0,
+                        do_stack=True,
+                    ),
+                ),
+                z_plan=z_plan,
+            ),
+        ),
+    )
+
+    inherited = _inherit_subsequence_channel_stack_settings(
+        positions, global_channels, z_plan
+    )
+
+    assert inherited[0].sequence.channels[1].do_stack is False
+    assert inherited[1].sequence.channels[1].do_stack is True
+
+
 def test_qquant_line_edit(qtbot: QtBot) -> None:
     wdg = QTimeLineEdit("1.0 s")
     wdg.show()
