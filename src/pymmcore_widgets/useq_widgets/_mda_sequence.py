@@ -417,7 +417,7 @@ class MDASequenceWidget(QWidget):
             PYMMCW_AUTOFOCUS_KEY, {}
         )
         if autofocus_meta:
-            self.autofocus.setValue(cast(dict[str, Any], autofocus_meta))
+            self.autofocus.setValue(cast("dict[str, Any]", autofocus_meta))
             self.setSoftwareAutofocusSettings(
                 autofocus_meta.get(PYMMCW_SOFTWARE_AUTOFOCUS_KEY)
             )
@@ -432,7 +432,9 @@ class MDASequenceWidget(QWidget):
             self.autofocus.setValue(
                 {
                     "mode": (
-                        AutofocusMode.HARDWARE.value if axis else AutofocusMode.NONE.value
+                        AutofocusMode.HARDWARE.value
+                        if axis
+                        else AutofocusMode.NONE.value
                     ),
                     "axes": tuple(axis),
                 }
@@ -713,7 +715,7 @@ def _inherit_subsequence_channel_stack_settings(
                 if global_channel is not None and global_channel.do_stack is not None:
                     channel = channel.replace(do_stack=global_channel.do_stack)
                     changed = True
-                elif global_channel is None and seq.z_plan is None and z_plan is not None:
+                elif global_channel is None:
                     channel = channel.replace(do_stack=False)
                     changed = True
             new_channels.append(channel)
@@ -730,6 +732,13 @@ def _inherit_subsequence_channel_stack_settings(
                     step=getattr(z_plan, "step", None) or 1,
                 )
             )
+            changed = True
+        elif (
+            z_plan is not None
+            and seq.z_plan is None
+            and any(channel.do_stack is False for channel in new_channels)
+        ):
+            seq = seq.replace(z_plan=z_plan)
             changed = True
 
         if changed:
