@@ -717,24 +717,14 @@ def _inherit_subsequence_channel_stack_settings(
 
         changed = False
         new_channels = []
-        for idx, channel in enumerate(seq.channels):
+        for channel in seq.channels:
             fields_set = getattr(channel, "model_fields_set", set())
             global_channel = global_channels.get(_channel_key(channel))
             if "do_stack" not in fields_set:
-                global_do_stack = (
-                    global_channel.do_stack if global_channel is not None else None
-                )
-                if global_do_stack is None and idx < len(channels):
-                    global_do_stack = channels[idx].do_stack
-
-                if global_do_stack is not None:
-                    channel = channel.replace(do_stack=global_do_stack)
+                if global_channel is not None and global_channel.do_stack is not None:
+                    channel = channel.replace(do_stack=global_channel.do_stack)
                     changed = True
-                elif (
-                    global_channel is None
-                    and seq.z_plan is None
-                    and z_plan is not None
-                ):
+                elif global_channel is None:
                     channel = channel.replace(do_stack=False)
                     changed = True
             new_channels.append(channel)
